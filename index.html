@@ -1,0 +1,750 @@
+<title>AI音声対話デモ</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+1p:wght@400;500;700&family=Roboto+Mono:wght@400;500;700&display=swap">
+<style>
+:root{
+  --bg:#0D1117; --surface:#161B24; --surface-2:#1E242F; --surface-3:#262E3B;
+  --ink:#E8EDF4; --muted:#8A97A8; --line:#2A3340;
+  --stt:#3DDC97; --llm:#F5A524; --tts:#5BA9F5;
+  --danger:#F26D6D;
+  --shadow:0 2px 4px rgba(0,0,0,.3), 0 16px 40px -20px rgba(0,0,0,.6);
+}
+:root[data-theme="light"]{
+  --bg:#F2F4F7; --surface:#FFFFFF; --surface-2:#F7F9FB; --surface-3:#EBEFF4;
+  --ink:#16202B; --muted:#5C6878; --line:#DDE3EA;
+  --stt:#129A68; --llm:#B5711A; --tts:#2B6FB8;
+  --danger:#C23B3B;
+  --shadow:0 1px 2px rgba(22,32,43,.06), 0 12px 32px -18px rgba(22,32,43,.25);
+}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){
+    --bg:#F2F4F7; --surface:#FFFFFF; --surface-2:#F7F9FB; --surface-3:#EBEFF4;
+    --ink:#16202B; --muted:#5C6878; --line:#DDE3EA;
+    --stt:#129A68; --llm:#B5711A; --tts:#2B6FB8;
+    --danger:#C23B3B;
+    --shadow:0 1px 2px rgba(22,32,43,.06), 0 12px 32px -18px rgba(22,32,43,.25);
+  }
+}
+*{box-sizing:border-box;}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"M PLUS 1p","Hiragino Sans","Yu Gothic",sans-serif;
+  padding-inline:16px; padding-block:26px; line-height:1.7;
+}
+.wrap{max-width:880px; margin:0 auto; display:flex; flex-direction:column; gap:20px;}
+h1,h2,h3{margin:0; text-wrap:balance; font-weight:700;}
+.mono{font-family:"Roboto Mono",ui-monospace,monospace; font-variant-numeric:tabular-nums;}
+
+.head{display:flex; flex-direction:column; gap:10px;}
+h1{font-size:25px;}
+.sub{color:var(--muted); font-size:13.5px; max-width:640px;}
+.badges{display:flex; flex-wrap:wrap; gap:8px;}
+.badge{
+  display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:500;
+  padding:4px 10px; border-radius:100px; border:1px solid var(--line);
+  background:var(--surface); color:var(--muted);
+}
+.badge .dot{width:7px; height:7px; border-radius:50%; background:var(--muted); flex:none;}
+.badge.ok{color:var(--stt); border-color:color-mix(in srgb, var(--stt) 40%, transparent);}
+.badge.ok .dot{background:var(--stt);}
+.badge.warn{color:var(--llm); border-color:color-mix(in srgb, var(--llm) 40%, transparent);}
+.badge.warn .dot{background:var(--llm);}
+.badge.off{color:var(--danger); border-color:color-mix(in srgb, var(--danger) 40%, transparent);}
+.badge.off .dot{background:var(--danger);}
+
+.console{
+  background:var(--surface); border:1px solid var(--line); border-radius:18px;
+  padding:24px 20px; box-shadow:var(--shadow);
+  display:flex; flex-direction:column; align-items:center; gap:16px;
+}
+.mic-btn{
+  position:relative; width:104px; height:104px; border-radius:50%; border:none; cursor:pointer;
+  background:var(--surface-3); color:var(--ink); display:grid; place-items:center;
+  transition:transform .12s ease, background .2s ease; font-family:inherit;
+}
+.mic-btn:hover{transform:scale(1.03);}
+.mic-btn:focus-visible{outline:3px solid var(--stt); outline-offset:4px;}
+.mic-btn:disabled{opacity:.45; cursor:not-allowed; transform:none;}
+.mic-btn svg{width:38px; height:38px; fill:currentColor;}
+.mic-btn.live{background:color-mix(in srgb, var(--stt) 22%, var(--surface-3)); color:var(--stt);}
+.mic-btn.live::after{
+  content:""; position:absolute; inset:-6px; border-radius:50%;
+  border:2px solid var(--stt); animation:pulse 1.4s ease-out infinite;
+}
+@keyframes pulse{ 0%{transform:scale(1); opacity:.7;} 100%{transform:scale(1.22); opacity:0;} }
+@media (prefers-reduced-motion:reduce){ .mic-btn.live::after{animation:none; opacity:.5;} }
+
+.hint{font-size:13px; color:var(--muted); text-align:center; min-height:22px;}
+.live-text{
+  width:100%; min-height:52px; background:var(--surface-2); border-radius:12px;
+  padding:12px 14px; font-size:15px; text-align:center; color:var(--ink);
+  border:1px dashed var(--line);
+}
+.live-text.empty{color:var(--muted); font-size:13px;}
+
+.pipe{display:grid; grid-template-columns:repeat(3,1fr); gap:10px; width:100%;}
+@media (max-width:560px){ .pipe{grid-template-columns:1fr;} }
+.stage{
+  background:var(--surface-2); border:1px solid var(--line); border-radius:12px;
+  padding:11px 13px; display:flex; flex-direction:column; gap:3px;
+  border-left:3px solid var(--line); transition:border-color .2s ease, background .2s ease;
+}
+.stage .s-name{font-size:11.5px; color:var(--muted); font-weight:500;}
+.stage .s-val{font-size:19px; font-weight:700;}
+.stage .s-note{font-size:10.5px; color:var(--muted);}
+.stage.stt.active{border-left-color:var(--stt); background:color-mix(in srgb, var(--stt) 9%, var(--surface-2));}
+.stage.llm.active{border-left-color:var(--llm); background:color-mix(in srgb, var(--llm) 9%, var(--surface-2));}
+.stage.tts.active{border-left-color:var(--tts); background:color-mix(in srgb, var(--tts) 9%, var(--surface-2));}
+.stage.stt .s-val{color:var(--stt);} .stage.llm .s-val{color:var(--llm);} .stage.tts .s-val{color:var(--tts);}
+
+.textbar{display:flex; gap:8px; width:100%;}
+.textbar input{
+  flex:1; min-width:0; background:var(--surface-2); border:1px solid var(--line); border-radius:10px;
+  padding:10px 13px; color:var(--ink); font-family:inherit; font-size:14px;
+}
+.textbar input:focus{outline:2px solid var(--tts); outline-offset:1px;}
+.textbar button{
+  background:var(--tts); color:#07121D; border:none; border-radius:10px; padding:10px 18px;
+  font-family:inherit; font-weight:700; font-size:14px; cursor:pointer; flex:none;
+}
+.textbar button:disabled{opacity:.5; cursor:not-allowed;}
+
+.log{display:flex; flex-direction:column; gap:12px;}
+.turn{display:flex; flex-direction:column; gap:5px;}
+.turn.user{align-items:flex-end;}
+.bubble{
+  max-width:88%; padding:11px 15px; border-radius:14px; font-size:14.5px;
+  background:var(--surface-2); border:1px solid var(--line); white-space:pre-wrap;
+}
+.turn.user .bubble{background:var(--surface-3); border-bottom-right-radius:4px;}
+.turn.ai .bubble{border-bottom-left-radius:4px;}
+.meta{font-size:11px; color:var(--muted); display:flex; gap:10px; flex-wrap:wrap;}
+.meta .tag{padding:1px 7px; border-radius:100px; background:var(--surface-3);}
+.sample-flag{
+  display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:700;
+  color:var(--llm); background:color-mix(in srgb, var(--llm) 14%, transparent);
+  border:1px solid color-mix(in srgb, var(--llm) 35%, transparent);
+  padding:2px 9px; border-radius:100px;
+}
+
+.card{
+  background:var(--surface); border:1px solid var(--line); border-radius:16px;
+  padding:20px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:14px;
+}
+.card h2{font-size:16px;}
+.card p.k{font-size:13px; color:var(--muted); margin:0;}
+.tablewrap{overflow-x:auto;}
+table{width:100%; border-collapse:collapse; font-size:13px; min-width:540px;}
+th{text-align:left; font-size:11.5px; color:var(--muted); font-weight:500; padding:7px 10px; border-bottom:1px solid var(--line);}
+td{padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:top;}
+td.hd{font-weight:700; white-space:nowrap;}
+td.reason{color:var(--muted);}
+
+ul.pts{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:10px;}
+ul.pts li{font-size:13px; color:var(--muted); padding-left:18px; position:relative; line-height:1.75;}
+ul.pts li::before{content:"▸"; position:absolute; left:0; color:var(--tts); font-size:10px; top:5px;}
+ul.pts li b{color:var(--ink); font-weight:700;}
+
+.callout{
+  border-left:3px solid var(--llm); background:color-mix(in srgb, var(--llm) 8%, var(--surface-2));
+  border-radius:0 10px 10px 0; padding:13px 15px; font-size:13px; color:var(--ink); line-height:1.8;
+}
+.callout b{color:var(--llm);}
+
+/* reference bars */
+.ref{display:flex; flex-direction:column; gap:12px;}
+.refrow{
+  display:grid; grid-template-columns:150px minmax(80px,1fr) 74px;
+  gap:10px; align-items:center; font-size:12.5px;
+}
+@media (max-width:640px){
+  .refrow{grid-template-columns:1fr auto; gap:5px 10px; font-size:12px;}
+  .refrow .rname{grid-column:1; grid-row:1;}
+  .refrow .rval{grid-column:2; grid-row:1;}
+  .refrow .reftrack{grid-column:1 / -1; grid-row:2;}
+}
+.refrow .rname{color:var(--ink);}
+.reftrack{
+  height:16px; min-width:40px; background:var(--surface-3);
+  border-radius:5px; position:relative; overflow:hidden;
+}
+.reffill{position:absolute; top:0; bottom:0; left:0; border-radius:5px; opacity:.9;}
+.refrow .rval{text-align:right; color:var(--muted); white-space:nowrap;}
+
+/* cost simulator */
+.simgrid{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
+@media (max-width:640px){ .simgrid{grid-template-columns:1fr;} }
+.field{display:flex; flex-direction:column; gap:6px;}
+.field .frow{display:flex; justify-content:space-between; align-items:baseline; gap:10px;}
+.field label{font-size:12.5px; font-weight:500;}
+.field .readout{font-size:14px; font-weight:700; color:var(--tts);}
+input[type=range]{
+  -webkit-appearance:none; appearance:none; width:100%; height:6px; border-radius:100px;
+  background:var(--line); outline:none;
+}
+input[type=range]::-webkit-slider-thumb{
+  -webkit-appearance:none; width:19px; height:19px; border-radius:50%;
+  background:var(--tts); border:3px solid var(--surface); box-shadow:0 0 0 1px var(--line); cursor:pointer;
+}
+input[type=range]::-moz-range-thumb{
+  width:19px; height:19px; border-radius:50%; background:var(--tts);
+  border:3px solid var(--surface); box-shadow:0 0 0 1px var(--line); cursor:pointer;
+}
+.field input[type=number]{
+  background:var(--surface-2); border:1px solid var(--line); border-radius:8px;
+  padding:8px 11px; color:var(--ink); font-family:"Roboto Mono",monospace; font-size:13px; width:100%;
+}
+.arch-opts{display:flex; flex-direction:column; gap:7px;}
+.arch{
+  display:flex; align-items:flex-start; gap:9px; padding:10px 12px; border-radius:10px;
+  border:1px solid var(--line); background:var(--surface-2); cursor:pointer; font-size:12.5px;
+}
+.arch:has(input:checked){border-color:var(--tts); background:color-mix(in srgb, var(--tts) 10%, var(--surface-2));}
+.arch input{margin-top:3px; flex:none; accent-color:var(--tts);}
+.arch .aname{font-weight:700; display:block;}
+.arch .arate{color:var(--muted); font-size:11.5px;}
+.simout{
+  background:var(--surface-2); border-radius:12px; padding:16px; display:grid;
+  grid-template-columns:1fr 1fr; gap:14px;
+}
+@media (max-width:560px){ .simout{grid-template-columns:1fr;} }
+.simout .o{display:flex; flex-direction:column; gap:3px;}
+.simout .o .ol{font-size:11.5px; color:var(--muted);}
+.simout .o .ov{font-size:22px; font-weight:700; color:var(--tts);}
+.simout .o .on{font-size:10.5px; color:var(--muted);}
+
+footer{font-size:11.5px; color:var(--muted); text-align:center; line-height:1.9;}
+footer a{color:var(--tts);}
+</style>
+
+<div class="wrap">
+
+  <div class="head">
+    <h1>AI音声対話デモ</h1>
+    <p class="sub">
+      音声認識 → 生成AI → 音声合成のパイプラインを、実際に動く形でご確認いただけます。
+      下の入力欄からテキストで話しかけると、AIが考えて声で返答します（マイクからの音声入力にも対応しています）。
+      各段階の所要時間をミリ秒で表示するので、体感速度がどこで決まるかをその場でご確認いただけます。
+    </p>
+    <div class="badges">
+      <span class="badge" id="badgeMic"><span class="dot"></span>マイク: 確認中</span>
+      <span class="badge" id="badgeAI"><span class="dot"></span>AI応答: 確認中</span>
+      <span class="badge" id="badgeTTS"><span class="dot"></span>音声合成: 確認中</span>
+    </div>
+    <div class="callout" style="border-left-color:var(--tts)">
+      <b style="color:var(--tts)">補足：</b>このページはClaudeの共有リンク（アーティファクト）の仕組み上、セキュリティ用のサンドボックス内に
+      表示されます。閲覧環境によってはこのサンドボックスがマイクへのアクセスを許可しないことがあり、その場合は
+      自動的にテキスト入力に切り替わります。生成AIへの問い合わせと音声合成（読み上げ）はサンドボックスの制約を
+      受けないため、テキスト入力でも②③の速度は実測できます。本番はブラウザの制約を受けない専用ページ／アプリで
+      動作するため、この制約自体が発生しません。
+    </div>
+  </div>
+
+  <div class="console">
+    <button class="mic-btn" id="micBtn" aria-label="マイクで話しかける">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V22h2v-3.08A7 7 0 0 0 19 12h-2Z"/></svg>
+    </button>
+    <p class="hint" id="hint">マイクボタンを押すか、下の入力欄からテキストで話しかけてください</p>
+    <div class="live-text empty" id="liveText">ここに認識された音声が表示されます</div>
+
+    <div class="pipe">
+      <div class="stage stt" id="stStt">
+        <span class="s-name">① 音声認識（STT）</span>
+        <span class="s-val mono" id="vStt">— ms</span>
+        <span class="s-note">発話終了 → 文字起こし確定</span>
+      </div>
+      <div class="stage llm" id="stLlm">
+        <span class="s-name">② 生成AI（TTFT）</span>
+        <span class="s-val mono" id="vLlm">— ms</span>
+        <span class="s-note">送信 → 最初の1文字が届くまで</span>
+      </div>
+      <div class="stage tts" id="stTts">
+        <span class="s-name">③ 音声合成（発話開始）</span>
+        <span class="s-val mono" id="vTts">— ms</span>
+        <span class="s-note">文字確定 → 声が出るまで</span>
+      </div>
+    </div>
+
+    <div class="textbar" id="textBar">
+      <input id="textInput" type="text" placeholder="ここに話しかけたい内容を入力してください" autocomplete="off">
+      <button id="sendBtn">送信</button>
+    </div>
+  </div>
+
+  <div class="log" id="log"></div>
+
+  <div class="card">
+    <h2>測定値の読み方（業界の目安との比較）</h2>
+    <p class="k">上のデモで出た数値がどの水準かを判断するための参考値です。人が「自然な会話」と感じる応答は、発話終了から音が出るまで概ね1秒以内が目安とされています。</p>
+    <div class="ref">
+      <div class="refrow">
+        <span class="rname">エンドツーエンド型</span>
+        <span class="reftrack"><span class="reffill" style="width:10%; background:var(--stt)"></span></span>
+        <span class="rval mono">〜300ms</span>
+      </div>
+      <div class="refrow">
+        <span class="rname">カスケード型（最適化済）</span>
+        <span class="reftrack"><span class="reffill" style="width:27%; background:var(--tts)"></span></span>
+        <span class="rval mono">〜800ms</span>
+      </div>
+      <div class="refrow">
+        <span class="rname">カスケード型（一般的）</span>
+        <span class="reftrack"><span class="reffill" style="width:100%; background:var(--llm)"></span></span>
+        <span class="rval mono">1.5〜3秒</span>
+      </div>
+    </div>
+    <p class="k">※ 各社の公開情報および2026年時点の比較記事に基づく概算値です。実際の数値は回線・地域・発話内容によって変動します。</p>
+  </div>
+
+  <div class="card">
+    <h2>構成の選択肢：カスケード型とエンドツーエンド型</h2>
+    <p class="k">
+      ご提示いただいた「音声認識 → 生成AI → 音声合成」はカスケード型の構成です。
+      現在はこれに加えて、音声をそのまま入出力するエンドツーエンド型（音声対音声モデル）も実用段階にあり、
+      応答速度・コスト・制御性の性質が大きく異なります。どちらが適しているかは用途によって変わります。
+    </p>
+    <div class="tablewrap">
+      <table>
+        <tr><th>観点</th><th>カスケード型（STT→LLM→TTS）</th><th>エンドツーエンド型（音声対音声）</th></tr>
+        <tr>
+          <td class="hd">応答速度</td>
+          <td>3回の通信を直列に行うため不利。最適化すれば1秒以内も可能</td>
+          <td>数百ミリ秒。構造的に速い</td>
+        </tr>
+        <tr>
+          <td class="hd">コスト</td>
+          <td class="reason">通話時間に比例して素直に増える。安価な構成を組めば大幅に抑えられる</td>
+          <td class="reason">音声トークンが文脈に蓄積するため、長時間通話ほど割高になりやすい</td>
+        </tr>
+        <tr>
+          <td class="hd">制御性・改善</td>
+          <td class="reason">各段を個別に差し替え・改善できる。文字起こしが残るためログ分析や精度改善がしやすい</td>
+          <td class="reason">中身がブラックボックスに近く、部分的な差し替えができない</td>
+        </tr>
+        <tr>
+          <td class="hd">割り込み対応</td>
+          <td class="reason">発話区間検出を自前で実装する必要がある</td>
+          <td class="reason">モデル側に組み込まれている場合が多い</td>
+        </tr>
+        <tr>
+          <td class="hd">向いている用途</td>
+          <td class="reason">業務システム連携、応対ログの分析・監査、コストを厳密に管理したい場合</td>
+          <td class="reason">雑談的な自然さ・即応性を最優先する場合</td>
+        </tr>
+      </table>
+    </div>
+    <div class="callout">
+      <b>MVPでの提案：</b>まずカスケード型で構築することをお勧めします。文字起こしが各段で残るため、
+      「認識精度が低いのか、AIの回答が悪いのか、読み上げが不自然なのか」を切り分けて改善できるためです。
+      エンドツーエンド型は速い反面、問題が起きたときに原因の切り分けが難しく、検証段階には不向きです。
+      速度が課題になった時点で、該当部分だけエンドツーエンド型に寄せる判断ができます。
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>運用コストの概算</h2>
+    <p class="k">想定する通話量を入力すると、構成ごとのAPI利用料の概算が出ます。開発費とは別に、毎月かかる費用の見当をつけるためのものです。</p>
+    <div class="simgrid">
+      <div style="display:flex; flex-direction:column; gap:16px;">
+        <div class="field">
+          <div class="frow"><label for="minInput">月間の通話時間</label><span class="readout mono" id="minReadout">1,000分</span></div>
+          <input type="range" id="minInput" min="100" max="20000" step="100" value="1000">
+          <span class="k">1日あたり約33分（月30日換算）</span>
+        </div>
+        <div class="field">
+          <label for="fxInput">為替レート（1ドルあたりの円）</label>
+          <input type="number" id="fxInput" value="150" min="80" max="250" step="1">
+          <span class="k">円換算のための想定値です。実際のレートに合わせて変更してください。</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>構成</label>
+        <div class="arch-opts" id="archOpts">
+          <label class="arch"><input type="radio" name="arch" value="0.02"><span><span class="aname">カスケード型・コスト重視</span><span class="arate mono">約 $0.02 / 分</span></span></label>
+          <label class="arch"><input type="radio" name="arch" value="0.13" checked><span><span class="aname">カスケード型・標準</span><span class="arate mono">約 $0.13 / 分</span></span></label>
+          <label class="arch"><input type="radio" name="arch" value="0.075"><span><span class="aname">エンドツーエンド型・最適化あり</span><span class="arate mono">約 $0.075 / 分</span></span></label>
+          <label class="arch"><input type="radio" name="arch" value="0.32"><span><span class="aname">エンドツーエンド型・最適化なし</span><span class="arate mono">約 $0.32 / 分</span></span></label>
+        </div>
+      </div>
+    </div>
+    <div class="simout">
+      <div class="o"><span class="ol">月額のAPI利用料（概算）</span><span class="ov mono" id="outMonthly">—</span><span class="on" id="outMonthlyUsd">—</span></div>
+      <div class="o"><span class="ol">年額換算</span><span class="ov mono" id="outYearly">—</span><span class="on" id="outYearlyUsd">—</span></div>
+    </div>
+    <div class="callout">
+      <b>エンドツーエンド型の注意点：</b>この構成は通話が長くなるほど音声トークンが文脈に積み上がるため、
+      10分の通話は1分の通話の10倍では済みません。長時間の対話が想定される場合、上記の単純計算より高くなる点にご注意ください。
+      カスケード型は通話時間に比例するため、この試算が実態に近くなります。
+    </div>
+    <p class="k">※ 2026年時点で公開されている各社の料金情報・比較記事に基づく概算単価です。実際の費用は選定するサービス・モデル・通話内容によって変動するため、構成確定後に正式な試算をご提示します。</p>
+  </div>
+
+  <div class="card">
+    <h2>技術選定で最初に決めたい3点</h2>
+    <ul class="pts">
+      <li>
+        <b>音声認識にWhisperを使うかどうか。</b>
+        Whisperは日本語の認識精度が高い一方、一定の長さの音声をまとめて処理するバッチ型の設計のため、
+        リアルタイムの会話用途では遅延が出やすいという特性があります。録音済み音声の書き起こしには最適ですが、
+        今回のようなリアルタイム対話では、ストリーミング認識に対応したサービス（Deepgram、Google Speech-to-Text、Azure Speech等）
+        の方が適している可能性が高いです。ここは早い段階で方針を決めたい点です。
+      </li>
+      <li>
+        <b>会話の入口が電話かWebブラウザか。</b>
+        電話回線を使う場合は電話基盤（SIP/CPaaS）との接続が必要になり、ブラウザで完結する場合と構成が大きく変わります。
+        MVPの範囲を決める上で最も影響が大きい分岐です。
+      </li>
+      <li>
+        <b>音声データを保存するかどうか。</b>
+        会話履歴をテキストだけ残すのか、音声も残すのかで、ストレージ設計と個人情報の取り扱い方針が変わります。
+        後から変更すると手戻りが大きいため、MVPの段階で決めておきたい項目です。
+      </li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>遅延とAPI利用料を抑える設計</h2>
+    <ul class="pts">
+      <li><b>段を直列に待たない。</b>音声認識が全文確定するのを待たず、文の切れ目で生成AIへ渡し、AIの1文目が出た時点で音声合成を開始します。3段を順番に待つ構成と比べ、体感の待ち時間を大きく削減できます。</li>
+      <li><b>発話区間検出（VAD）で無音を送らない。</b>沈黙を音声認識APIに送らないだけで、課金対象の秒数と遅延の両方が減ります。</li>
+      <li><b>定型フレーズの音声をキャッシュする。</b>「少々お待ちください」等の固定文言は毎回合成せず使い回します。</li>
+      <li><b>問い合わせ内容でモデルを振り分ける。</b>単純な応答は軽量モデル、複雑な判断のみ上位モデルに回すことで、品質を落とさずコストを下げられます。</li>
+      <li><b>MVPでは音質より応答速度を優先して検証する。</b>先に「会話が成立する速度」を体感で確認し、その後に音声品質を上げる順序が、手戻りが少なく済みます。</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h2>このデモの構成</h2>
+    <div class="tablewrap">
+      <table>
+        <tr><th>段階</th><th>このデモ</th><th>本番の候補</th></tr>
+        <tr><td class="hd" style="color:var(--stt)">音声認識</td><td>ブラウザ標準 Web Speech API</td><td class="reason">Deepgram / Google STT / Azure Speech（ストリーミング対応）</td></tr>
+        <tr><td class="hd" style="color:var(--llm)">生成AI</td><td>Claude（このページから直接）</td><td class="reason">Claude API / OpenAI API（ストリーミング受信必須）</td></tr>
+        <tr><td class="hd" style="color:var(--tts)">音声合成</td><td>ブラウザ標準 speechSynthesis</td><td class="reason">ElevenLabs / OpenAI TTS / Google・Azure TTS</td></tr>
+        <tr><td class="hd">通信</td><td>ブラウザ内で完結</td><td class="reason">WebSocket（テキスト・制御）／WebRTC（音声ストリーム）</td></tr>
+        <tr><td class="hd">フロント・バック</td><td>単一HTML</td><td class="reason">Next.js + React ／ FastAPI または Node.js（APIキー秘匿のためサーバ必須）</td></tr>
+        <tr><td class="hd">データ保存</td><td>ブラウザ内のみ</td><td class="reason">PostgreSQL ＋ オブジェクトストレージ</td></tr>
+      </table>
+    </div>
+    <p class="k">デモは追加費用をかけずに動かすためブラウザ標準機能を使用しています。そのため音声認識の精度・音声合成の自然さは本番構成より低い水準です。パイプライン全体の流れと、遅延がどこで発生するかの確認用としてご覧ください。</p>
+  </div>
+
+  <footer>
+    応募時のデモとして作成したものです。音声認識・音声合成はブラウザ標準機能のため外部APIの費用は発生しません。<br>
+    AI応答部分はご覧の方のClaudeアカウントを利用します（利用できない環境では定型応答のデモモードで動作します）。
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const micBtn = $("micBtn"), hint = $("hint"), liveText = $("liveText"), log = $("log");
+  const textBar = $("textBar"), textInput = $("textInput"), sendBtn = $("sendBtn");
+  const vStt = $("vStt"), vLlm = $("vLlm"), vTts = $("vTts");
+  const stStt = $("stStt"), stLlm = $("stLlm"), stTts = $("stTts");
+
+  const RULES = "あなたは音声対話デモのアシスタントです。回答は必ず日本語で、2〜3文以内の短い話し言葉にしてください。"
+    + "読み上げられる前提なので、箇条書き・記号・マークダウンは使わず、自然な口語で答えてください。";
+
+  let turns = [], sampleFn = null, recognition = null;
+  let listening = false, busy = false, jaVoice = null, micUnavailable = false;
+  const READY_HINT = "マイクボタンを押すか、下の入力欄からテキストで話しかけてください";
+  const TEXT_ONLY_HINT = "マイクが使用できないため、下の入力欄からテキストで話しかけてください";
+  function resetHintToReady(){
+    hint.textContent = micUnavailable ? TEXT_ONLY_HINT : READY_HINT;
+  }
+
+  function setBadge(el, state, label){
+    el.className = "badge " + state;
+    el.innerHTML = '<span class="dot"></span>' + label;
+  }
+
+  /* ---------- TTS ---------- */
+  const synth = window.speechSynthesis || null;
+  function pickVoice(){
+    if(!synth) return;
+    const voices = synth.getVoices();
+    jaVoice = voices.find(v => v.lang === "ja-JP") || voices.find(v => (v.lang||"").startsWith("ja")) || null;
+  }
+  if(synth){
+    pickVoice();
+    if(synth.addEventListener) synth.addEventListener("voiceschanged", pickVoice);
+    setBadge($("badgeTTS"), "ok", "音声合成: 利用可能");
+  } else {
+    setBadge($("badgeTTS"), "off", "音声合成: 非対応");
+  }
+  function speak(text, onStart){
+    if(!synth){ onStart && onStart(false); return; }
+    try{
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "ja-JP";
+      if(jaVoice) u.voice = jaVoice;
+      u.rate = 1.05;
+      let fired = false;
+      const done = ok => { if(!fired){ fired = true; onStart && onStart(ok); } };
+      u.onstart = () => done(true);
+      u.onerror = () => done(false);
+      synth.speak(u);
+      setTimeout(() => done(false), 2500);
+    }catch(e){ onStart && onStart(false); }
+  }
+
+  /* ---------- log ---------- */
+  function addTurn(role, text, metaParts, flagged){
+    const t = document.createElement("div");
+    t.className = "turn " + (role === "user" ? "user" : "ai");
+    const b = document.createElement("div");
+    b.className = "bubble"; b.textContent = text;
+    t.appendChild(b);
+    if((metaParts && metaParts.length) || flagged){
+      const m = document.createElement("div");
+      m.className = "meta";
+      if(flagged){
+        const f = document.createElement("span");
+        f.className = "sample-flag"; f.textContent = "表示サンプル";
+        m.appendChild(f);
+      }
+      (metaParts || []).forEach(p => {
+        const s = document.createElement("span");
+        s.className = "tag mono"; s.textContent = p;
+        m.appendChild(s);
+      });
+      t.appendChild(m);
+    }
+    log.appendChild(t);
+    t.scrollIntoView({behavior:"smooth", block:"nearest"});
+  }
+  addTurn("user", "営業時間を教えてください。", null, false);
+  addTurn("ai", "平日は午前9時から午後6時まで、土曜は午後1時までの営業です。日曜と祝日はお休みをいただいています。",
+    ["STT 210ms", "TTFT 640ms", "発話開始 180ms"], true);
+
+  function resetStages(){
+    [stStt, stLlm, stTts].forEach(s => s.classList.remove("active"));
+    vStt.textContent = "— ms"; vLlm.textContent = "— ms"; vTts.textContent = "— ms";
+  }
+  const ms = n => Math.round(n) + " ms";
+
+  /* ---------- AI ---------- */
+  const CANNED = [
+    "デモモードで応答しています。実際の構成では、ここで生成AIが文脈に沿った回答を作成します。",
+    "ご質問ありがとうございます。本番環境では、社内データを参照した上で回答する構成も可能です。",
+    "こちらはデモ用の定型応答です。音声認識と音声合成の流れはそのままご確認いただけます。",
+  ];
+  let cannedIdx = 0;
+
+  async function askAI(userText, onFirstText){
+    if(sampleFn){
+      turns.push({role:"user", content:userText});
+      if(turns.length > 8) turns = turns.slice(-8);
+      const input = [{role:"user", content:RULES}].concat(turns);
+      let fired = false;
+      const res = await sampleFn(input, {
+        modelTier:"quick", cache:false,
+        onText: () => { if(!fired){ fired = true; onFirstText && onFirstText(); } },
+      });
+      turns.push({role:"assistant", content:res.text});
+      return {text:res.text, demo:false};
+    }
+    await new Promise(r => setTimeout(r, 400));
+    onFirstText && onFirstText();
+    return {text:CANNED[cannedIdx++ % CANNED.length], demo:true};
+  }
+
+  function aiErrorMessage(code){
+    switch(code){
+      case "not_granted": return "AIの利用が許可されなかったため、応答できませんでした。下の入力欄からデモモードでお試しいただけます。";
+      case "rate_limited": return "アクセスが集中しています。少し時間をおいてからもう一度お試しください。";
+      case "session_expired": return "セッションの有効期限が切れました。ページを再読み込みしてください。";
+      case "cancelled": return "";
+      default: return "AIの応答中に問題が発生しました。もう一度お試しください。";
+    }
+  }
+
+  async function handleUtterance(userText, sttMs){
+    if(busy || !userText.trim()) return;
+    busy = true; micBtn.disabled = true; sendBtn.disabled = true;
+
+    addTurn("user", userText, sttMs != null ? ["STT " + Math.round(sttMs) + "ms"] : null, false);
+    liveText.classList.add("empty");
+    liveText.textContent = "ここに認識された音声が表示されます";
+
+    stStt.classList.remove("active");
+    stLlm.classList.add("active");
+    hint.textContent = "AIが考えています…";
+
+    const tSend = performance.now();
+    let ttft = null;
+    try{
+      const r = await askAI(userText, () => { ttft = performance.now() - tSend; vLlm.textContent = ms(ttft); });
+      stLlm.classList.remove("active");
+      stTts.classList.add("active");
+      hint.textContent = "読み上げています…";
+
+      const tSpeak = performance.now();
+      speak(r.text, ok => {
+        vTts.textContent = ok ? ms(performance.now() - tSpeak) : "非対応";
+        stTts.classList.remove("active");
+        resetHintToReady();
+      });
+
+      const meta = [];
+      if(ttft != null) meta.push("TTFT " + Math.round(ttft) + "ms");
+      if(r.demo) meta.push("デモモード応答");
+      addTurn("ai", r.text, meta, false);
+    }catch(e){
+      stLlm.classList.remove("active");
+      const msg = aiErrorMessage(e && e.code);
+      if(msg) addTurn("ai", msg, null, false);
+      if(e && e.code === "not_granted") textBar.hidden = false;
+      resetHintToReady();
+    }finally{
+      busy = false;
+      micBtn.disabled = !recognition || micUnavailable;
+      sendBtn.disabled = false;
+    }
+  }
+
+  /* ---------- STT ---------- */
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  function enableTextMode(reason){
+    micUnavailable = true;
+    textBar.hidden = false;
+    setBadge($("badgeMic"), "off", "マイク: " + reason);
+    micBtn.disabled = true;
+    hint.textContent = TEXT_ONLY_HINT;
+  }
+  if(SR){
+    try{
+      recognition = new SR();
+      recognition.lang = "ja-JP";
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      recognition.maxAlternatives = 1;
+      let tStart = 0, finalText = "", lastSpeechAt = 0;
+
+      recognition.onstart = () => {
+        listening = true; tStart = performance.now(); finalText = ""; lastSpeechAt = 0;
+        micBtn.classList.add("live");
+        stStt.classList.add("active");
+        hint.textContent = "お話しください（話し終わると自動で止まります）";
+        liveText.classList.add("empty");
+        liveText.textContent = "聞き取り中…";
+        if(synth) synth.cancel();
+      };
+      recognition.onresult = ev => {
+        let interim = "";
+        for(let i = ev.resultIndex; i < ev.results.length; i++){
+          const r = ev.results[i];
+          if(r.isFinal){ finalText += r[0].transcript; lastSpeechAt = performance.now(); }
+          else interim += r[0].transcript;
+        }
+        const shown = (finalText + interim).trim();
+        if(shown){ liveText.classList.remove("empty"); liveText.textContent = shown; }
+      };
+      recognition.onerror = ev => {
+        listening = false;
+        micBtn.classList.remove("live");
+        stStt.classList.remove("active");
+        if(ev.error === "not-allowed" || ev.error === "service-not-allowed"){
+          enableTextMode("使用不可");
+        } else if(ev.error === "no-speech"){
+          hint.textContent = "音声が検出されませんでした。もう一度お試しください";
+        } else {
+          hint.textContent = "音声認識でエラーが発生しました（" + ev.error + "）";
+          textBar.hidden = false;
+        }
+      };
+      recognition.onend = () => {
+        listening = false;
+        micBtn.classList.remove("live");
+        const text = finalText.trim();
+        if(text){
+          const sttMs = (lastSpeechAt || performance.now()) - tStart;
+          vStt.textContent = ms(sttMs);
+          handleUtterance(text, sttMs);
+        } else {
+          stStt.classList.remove("active");
+          if(!busy) resetHintToReady();
+        }
+      };
+
+      setBadge($("badgeMic"), "ok", "マイク: 利用可能");
+
+      // 一部の環境(埋め込みiframe等)では、マイク許可がブロックされていても
+      // onstart/onerror のどちらも発火せず、無反応のまま固まることがある。
+      // start()を呼んでから一定時間onstartが来なければ、ブロックされたとみなして
+      // テキスト入力にフォールバックする。
+      let startWatchdog = null;
+      recognition.addEventListener("start", () => {
+        if(startWatchdog){ clearTimeout(startWatchdog); startWatchdog = null; }
+      });
+
+      micBtn.addEventListener("click", () => {
+        if(busy) return;
+        if(listening){ try{ recognition.stop(); }catch(e){} return; }
+        resetStages();
+        hint.textContent = "マイクの起動を確認しています…";
+        try{
+          recognition.start();
+          startWatchdog = setTimeout(() => {
+            if(!listening){
+              try{ recognition.abort(); }catch(e){}
+              enableTextMode("この環境では利用不可");
+              hint.textContent = "この閲覧環境ではマイクを利用できません。上の入力欄からテキストでお試しください";
+            }
+          }, 1500);
+        }catch(e){
+          hint.textContent = "マイクを開始できませんでした。もう一度お試しください";
+        }
+      });
+    }catch(e){
+      recognition = null;
+      enableTextMode("初期化に失敗");
+    }
+  } else {
+    enableTextMode("このブラウザでは非対応");
+  }
+
+  function submitText(){
+    const v = textInput.value.trim();
+    if(!v || busy) return;
+    textInput.value = "";
+    resetStages();
+    vStt.textContent = "テキスト入力";
+    handleUtterance(v, null);
+  }
+  sendBtn.addEventListener("click", submitText);
+  textInput.addEventListener("keydown", e => { if(e.key === "Enter") submitText(); });
+
+  /* ---------- cost simulator ---------- */
+  const minInput = $("minInput"), fxInput = $("fxInput"), minReadout = $("minReadout");
+  function recalcCost(){
+    const mins = +minInput.value;
+    const fx = Math.max(1, +fxInput.value || 150);
+    const rate = +(document.querySelector('input[name="arch"]:checked') || {value:0.13}).value;
+    minReadout.textContent = mins.toLocaleString("ja-JP") + "分";
+    const usdM = mins * rate, jpyM = usdM * fx;
+    $("outMonthly").textContent = "約 " + Math.round(jpyM).toLocaleString("ja-JP") + " 円";
+    $("outMonthlyUsd").textContent = "$" + usdM.toFixed(2) + " / 月";
+    $("outYearly").textContent = "約 " + Math.round(jpyM * 12).toLocaleString("ja-JP") + " 円";
+    $("outYearlyUsd").textContent = "$" + (usdM * 12).toFixed(2) + " / 年";
+  }
+  minInput.addEventListener("input", recalcCost);
+  fxInput.addEventListener("input", recalcCost);
+  $("archOpts").addEventListener("change", recalcCost);
+  recalcCost();
+
+  /* ---------- capability ---------- */
+  setBadge($("badgeAI"), "warn", "AI応答: 接続確認中");
+  (async () => {
+    try{
+      const s = window.claude && await window.claude.use("sample");
+      if(s){ sampleFn = s; setBadge($("badgeAI"), "ok", "AI応答: Claude接続"); }
+      else { setBadge($("badgeAI"), "warn", "AI応答: デモモード（定型応答）"); textBar.hidden = false; }
+    }catch(e){
+      setBadge($("badgeAI"), "warn", "AI応答: デモモード（定型応答）");
+    }
+  })();
+})();
+</script>
